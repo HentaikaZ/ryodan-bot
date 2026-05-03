@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const { Client, GatewayIntentBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, REST, Routes, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
@@ -12,7 +12,8 @@ const client = new Client({
 });
 
 const slotBansPath = path.join(__dirname, 'slotBans.json');
-const slotBanRoleName = 'Следящий за шахтой';
+const botAdminsPath = path.join(__dirname, 'botAdmins.json');
+const slotBanRoleName = 'РЎР»РµРґСЏС‰РёР№ Р·Р° С€Р°С…С‚РѕР№';
 const dayMs = 24 * 60 * 60 * 1000;
 
 const loadSlotBans = () => {
@@ -30,6 +31,24 @@ const saveSlotBans = (bans) => {
         fs.writeFileSync(slotBansPath, JSON.stringify(bans, null, 2), 'utf8');
     } catch (err) {
         console.error('Failed to save slot bans:', err);
+    }
+};
+
+const loadBotAdmins = () => {
+    try {
+        if (!fs.existsSync(botAdminsPath)) return {};
+        return JSON.parse(fs.readFileSync(botAdminsPath, 'utf8'));
+    } catch (err) {
+        console.error('Failed to load bot admins:', err);
+        return {};
+    }
+};
+
+const saveBotAdmins = (admins) => {
+    try {
+        fs.writeFileSync(botAdminsPath, JSON.stringify(admins, null, 2), 'utf8');
+    } catch (err) {
+        console.error('Failed to save bot admins:', err);
     }
 };
 
@@ -53,10 +72,10 @@ const formatSlotBanMessage = (ban) => {
     const expiresAt = Math.floor(ban.expiresAt / 1000);
 
     return [
-        '❌ Вы заблокированы от участия в пике слотов.',
-        `Причина: ${ban.reason}`,
-        `Кто забанил: <@${ban.moderatorId}>`,
-        `Срок: ${ban.days} дн. (осталось: ${daysLeft} дн., до <t:${expiresAt}:f>)`
+        'вќЊ Р’С‹ Р·Р°Р±Р»РѕРєРёСЂРѕРІР°РЅС‹ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.',
+        `РџСЂРёС‡РёРЅР°: ${ban.reason}`,
+        `РљС‚Рѕ Р·Р°Р±Р°РЅРёР»: <@${ban.moderatorId}>`,
+        `РЎСЂРѕРє: ${ban.days} РґРЅ. (РѕСЃС‚Р°Р»РѕСЃСЊ: ${daysLeft} РґРЅ., РґРѕ <t:${expiresAt}:f>)`
     ].join('\n');
 };
 
@@ -92,7 +111,7 @@ const formatSlotBanList = (guildId) => {
     const activeBans = getActiveGuildSlotBans(guildId);
 
     if (activeBans.length === 0) {
-        return '✅ Сейчас нет пользователей, забаненных от участия в пике слотов.';
+        return 'вњ… РЎРµР№С‡Р°СЃ РЅРµС‚ РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№, Р·Р°Р±Р°РЅРµРЅРЅС‹С… РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.';
     }
 
     return activeBans.map(([userId, ban], index) => {
@@ -101,9 +120,9 @@ const formatSlotBanList = (guildId) => {
 
         return [
             `**${index + 1}. <@${userId}>**`,
-            `Причина: ${ban.reason}`,
-            `Кто забанил: <@${ban.moderatorId}>`,
-            `Длительность: ${ban.days} дн. (осталось: ${daysLeft} дн., до <t:${expiresAt}:f>)`
+            `РџСЂРёС‡РёРЅР°: ${ban.reason}`,
+            `РљС‚Рѕ Р·Р°Р±Р°РЅРёР»: <@${ban.moderatorId}>`,
+            `Р”Р»РёС‚РµР»СЊРЅРѕСЃС‚СЊ: ${ban.days} РґРЅ. (РѕСЃС‚Р°Р»РѕСЃСЊ: ${daysLeft} РґРЅ., РґРѕ <t:${expiresAt}:f>)`
         ].join('\n');
     }).join('\n\n');
 };
@@ -122,10 +141,70 @@ const removeSlotBan = (guildId, userId) => {
     return true;
 };
 
-const memberCanBanSlots = (member, guild = null) => {
+const memberIsDiscordAdmin = (member) => {
+    if (member?.permissions?.has?.(PermissionFlagsBits.Administrator)) {
+        return true;
+    }
+
+    if (member?.permissions) {
+        try {
+            return (BigInt(member.permissions) & PermissionFlagsBits.Administrator) === PermissionFlagsBits.Administrator;
+        } catch {
+            return false;
+        }
+    }
+
+    return false;
+};
+
+const userIsBotAdmin = (guildId, userId) => {
+    const admins = loadBotAdmins();
+    return Boolean(admins[guildId]?.includes(userId));
+};
+
+const addBotAdmin = (guildId, userId) => {
+    const admins = loadBotAdmins();
+    if (!admins[guildId]) admins[guildId] = [];
+    if (admins[guildId].includes(userId)) return false;
+
+    admins[guildId].push(userId);
+    saveBotAdmins(admins);
+    return true;
+};
+
+const removeBotAdmin = (guildId, userId) => {
+    const admins = loadBotAdmins();
+    if (!admins[guildId]?.includes(userId)) return false;
+
+    admins[guildId] = admins[guildId].filter(id => id !== userId);
+    if (admins[guildId].length === 0) delete admins[guildId];
+    saveBotAdmins(admins);
+    return true;
+};
+
+const formatBotAdminsList = (guildId) => {
+    const admins = loadBotAdmins();
+    const guildAdmins = admins[guildId] || [];
+
+    if (guildAdmins.length === 0) {
+        return '✅ Сейчас нет пользователей, которым выдали отдельный доступ к командам бота.';
+    }
+
+    return [
+        '**Администраторы команд бота:**',
+        '',
+        guildAdmins.map((userId, index) => `${index + 1}. <@${userId}>`).join('\n')
+    ].join('\n');
+};
+
+const memberCanUseBotCommands = (member, guild = null, userId = null) => {
     const requiredRole = guild?.roles?.cache?.find(role => role.name === slotBanRoleName);
 
-    if (member?.permissions?.has?.(PermissionFlagsBits.Administrator)) {
+    if (memberIsDiscordAdmin(member)) {
+        return true;
+    }
+
+    if (guild?.id && userId && userIsBotAdmin(guild.id, userId)) {
         return true;
     }
 
@@ -144,25 +223,37 @@ const memberCanBanSlots = (member, guild = null) => {
 };
 
 const commandAccessDeniedMessage = () => {
-    return `❌ Команды бота могут использовать только администраторы сервера, пользователи с ролью **${slotBanRoleName}** или ролью выше неё.`;
+    return `вќЊ РљРѕРјР°РЅРґС‹ Р±РѕС‚Р° РјРѕРіСѓС‚ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РѕР»СЊРєРѕ Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂС‹ СЃРµСЂРІРµСЂР°, РїРѕР»СЊР·РѕРІР°С‚РµР»Рё СЃ СЂРѕР»СЊСЋ **${slotBanRoleName}**, СЂРѕР»СЊСЋ РІС‹С€Рµ РЅРµС‘ РёР»Рё С‚Рµ, РєРѕРјСѓ РІС‹РґР°Р»Рё РґРѕСЃС‚СѓРї С‡РµСЂРµР· /setadmin.`;
+};
+
+const adminAccessDeniedMessage = () => {
+    return 'вќЊ Р­С‚Сѓ РєРѕРјР°РЅРґСѓ РјРѕРіСѓС‚ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РѕР»СЊРєРѕ РїРѕР»СЊР·РѕРІР°С‚РµР»Рё СЃ РїСЂР°РІРѕРј **Administrator** РЅР° СЃРµСЂРІРµСЂРµ.';
 };
 
 const helpMessage = () => {
     return [
-        '**Команды бота:**',
+        '**РљРѕРјР°РЅРґС‹ Р±РѕС‚Р°:**',
         '',
-        '`/slots [кол-во] [мпшка]` — открыть пик слотов.',
-        'Пример: `/slots 5 шахта`',
+        '`/slots [РєРѕР»-РІРѕ] [РјРїС€РєР°]` вЂ” РѕС‚РєСЂС‹С‚СЊ РїРёРє СЃР»РѕС‚РѕРІ.',
+        'РџСЂРёРјРµСЂ: `/slots 5 С€Р°С…С‚Р°`',
         '',
-        '`/banslot @username [дни] [причина]` — забанить пользователя от участия в пике слотов.',
-        'Пример: `/banslot @username 7 флуд`',
+        '`/banslot @username [РґРЅРё] [РїСЂРёС‡РёРЅР°]` вЂ” Р·Р°Р±Р°РЅРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.',
+        'РџСЂРёРјРµСЂ: `/banslot @username 7 С„Р»СѓРґ`',
         '',
-        '`/unban @username` — разбанить пользователя для участия в пике слотов.',
-        'Пример: `/unban @username`',
+        '`/unban @username` вЂ” СЂР°Р·Р±Р°РЅРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.',
+        'РџСЂРёРјРµСЂ: `/unban @username`',
         '',
-        '`/banlist` — показать список пользователей, забаненных от участия в пике слотов.',
+        '`/banlist` вЂ” РїРѕРєР°Р·Р°С‚СЊ СЃРїРёСЃРѕРє РїРѕР»СЊР·РѕРІР°С‚РµР»РµР№, Р·Р°Р±Р°РЅРµРЅРЅС‹С… РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.',
         '',
-        '`/help` — показать это сообщение.'
+        '`/setadmin @username` вЂ” РІС‹РґР°С‚СЊ РґРѕСЃС‚СѓРї Рє РєРѕРјР°РЅРґР°Рј Р±РѕС‚Р°. РўРѕР»СЊРєРѕ РґР»СЏ СЃРµСЂРІРµСЂРЅС‹С… Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ.',
+        'РџСЂРёРјРµСЂ: `/setadmin @username`',
+        '',
+        '`/unadmin @username` вЂ” СЃРЅСЏС‚СЊ РґРѕСЃС‚СѓРї Рє РєРѕРјР°РЅРґР°Рј Р±РѕС‚Р°. РўРѕР»СЊРєРѕ РґР»СЏ СЃРµСЂРІРµСЂРЅС‹С… Р°РґРјРёРЅРёСЃС‚СЂР°С‚РѕСЂРѕРІ.',
+        'РџСЂРёРјРµСЂ: `/unadmin @username`',
+        '',
+        '`/admins` - показать список пользователей с отдельным доступом к командам бота.',
+        '',
+        '`/help` вЂ” РїРѕРєР°Р·Р°С‚СЊ СЌС‚Рѕ СЃРѕРѕР±С‰РµРЅРёРµ.'
     ].join('\n');
 };
 
@@ -180,17 +271,17 @@ const onReady = async () => {
 
     const slotsCommand = {
         name: 'slots',
-        description: 'Открыть пик слотов',
+        description: 'РћС‚РєСЂС‹С‚СЊ РїРёРє СЃР»РѕС‚РѕРІ',
         options: [
             {
                 name: 'count',
-                description: 'Количество победителей',
+                description: 'РљРѕР»РёС‡РµСЃС‚РІРѕ РїРѕР±РµРґРёС‚РµР»РµР№',
                 type: 4,
                 required: true
             },
             {
                 name: 'target',
-                description: 'На что собираются слоты',
+                description: 'РќР° С‡С‚Рѕ СЃРѕР±РёСЂР°СЋС‚СЃСЏ СЃР»РѕС‚С‹',
                 type: 3,
                 required: true
             }
@@ -199,23 +290,23 @@ const onReady = async () => {
 
     const slotBanCommand = {
         name: 'banslot',
-        description: 'Забанить пользователя от участия в пике слотов',
+        description: 'Р—Р°Р±Р°РЅРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ',
         options: [
             {
                 name: 'user',
-                description: 'Пользователь, которого нужно забанить',
+                description: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ, РєРѕС‚РѕСЂРѕРіРѕ РЅСѓР¶РЅРѕ Р·Р°Р±Р°РЅРёС‚СЊ',
                 type: 6,
                 required: true
             },
             {
                 name: 'days',
-                description: 'Количество дней бана',
+                description: 'РљРѕР»РёС‡РµСЃС‚РІРѕ РґРЅРµР№ Р±Р°РЅР°',
                 type: 4,
                 required: true
             },
             {
                 name: 'reason',
-                description: 'Причина бана',
+                description: 'РџСЂРёС‡РёРЅР° Р±Р°РЅР°',
                 type: 3,
                 required: true
             }
@@ -224,16 +315,16 @@ const onReady = async () => {
 
     const slotBanListCommand = {
         name: 'banlist',
-        description: 'Показать список slot-банов'
+        description: 'РџРѕРєР°Р·Р°С‚СЊ СЃРїРёСЃРѕРє slot-Р±Р°РЅРѕРІ'
     };
 
     const slotUnbanCommand = {
         name: 'unban',
-        description: 'Разбанить пользователя для участия в пике слотов',
+        description: 'Р Р°Р·Р±Р°РЅРёС‚СЊ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ',
         options: [
             {
                 name: 'user',
-                description: 'Пользователь, которого нужно разбанить',
+                description: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊ, РєРѕС‚РѕСЂРѕРіРѕ РЅСѓР¶РЅРѕ СЂР°Р·Р±Р°РЅРёС‚СЊ',
                 type: 6,
                 required: true
             }
@@ -242,7 +333,38 @@ const onReady = async () => {
 
     const helpCommand = {
         name: 'help',
-        description: 'Показать список команд бота'
+        description: 'РџРѕРєР°Р·Р°С‚СЊ СЃРїРёСЃРѕРє РєРѕРјР°РЅРґ Р±РѕС‚Р°'
+    };
+
+    const setAdminCommand = {
+        name: 'setadmin',
+        description: 'Выдать доступ к командам бота',
+        options: [
+            {
+                name: 'user',
+                description: 'Пользователь, которому нужно выдать доступ',
+                type: 6,
+                required: true
+            }
+        ]
+    };
+
+    const unadminCommand = {
+        name: 'unadmin',
+        description: 'Снять доступ к командам бота',
+        options: [
+            {
+                name: 'user',
+                description: 'Пользователь, у которого нужно снять доступ',
+                type: 6,
+                required: true
+            }
+        ]
+    };
+
+    const adminsCommand = {
+        name: 'admins',
+        description: 'Показать список админов команд бота'
     };
 
     const guildId = process.env.DISCORD_GUILD_ID;
@@ -252,11 +374,11 @@ const onReady = async () => {
     } else {
         try {
             if (guildId) {
-                await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand] });
-                console.log(`Slash commands /slots, /banslot, /banlist, /unban and /help registered for guild ${guildId} (appear instantly).`);
+                await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand, setAdminCommand, unadminCommand, adminsCommand] });
+                console.log(`Slash commands /slots, /banslot, /banlist, /unban, /help, /setadmin, /unadmin and /admins registered for guild ${guildId} (appear instantly).`);
             } else {
-                await rest.put(Routes.applicationCommands(clientId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand] });
-                console.log('Slash commands /slots, /banslot, /banlist, /unban and /help registered globally (may take some minutes to appear).');
+                await rest.put(Routes.applicationCommands(clientId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand, setAdminCommand, unadminCommand, adminsCommand] });
+                console.log('Slash commands /slots, /banslot, /banlist, /unban, /help, /setadmin, /unadmin and /admins registered globally (may take some minutes to appear).');
             }
         } catch (err) {
             console.error('Failed to register slash commands:', err);
@@ -271,8 +393,46 @@ client.on('messageCreate', async message => {
 
     const allowedChannels = ['1471133668813832335', '1471670121838809128'];
 
+    const setAdminMatch = message.content.trim().match(/^\/?setadmin\s+<@!?(\d+)>$/i) || message.content.trim().match(/^!setadmin\s+<@!?(\d+)>$/i);
+    if (setAdminMatch) {
+        if (!memberIsDiscordAdmin(message.member)) {
+            await message.reply(adminAccessDeniedMessage());
+            return;
+        }
+
+        const targetUserId = setAdminMatch[1];
+        const added = addBotAdmin(message.guildId, targetUserId);
+
+        if (!added) {
+            await message.reply(`ℹ️ <@${targetUserId}> уже имеет доступ к командам бота.`);
+            return;
+        }
+
+        await message.reply(`✅ <@${targetUserId}> получил доступ к командам бота.`);
+        return;
+    }
+
+    const unadminMatch = message.content.trim().match(/^\/?unadmin\s+<@!?(\d+)>$/i) || message.content.trim().match(/^!unadmin\s+<@!?(\d+)>$/i);
+    if (unadminMatch) {
+        if (!memberIsDiscordAdmin(message.member)) {
+            await message.reply(adminAccessDeniedMessage());
+            return;
+        }
+
+        const targetUserId = unadminMatch[1];
+        const removed = removeBotAdmin(message.guildId, targetUserId);
+
+        if (!removed) {
+            await message.reply(`ℹ️ <@${targetUserId}> не имел отдельного доступа к командам бота.`);
+            return;
+        }
+
+        await message.reply(`✅ У <@${targetUserId}> снят доступ к командам бота.`);
+        return;
+    }
+
     if (message.content === '!ping') {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
@@ -282,7 +442,7 @@ client.on('messageCreate', async message => {
     }
 
     if (/^\/?help$/i.test(message.content.trim()) || /^!help$/i.test(message.content.trim())) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
@@ -292,7 +452,7 @@ client.on('messageCreate', async message => {
     }
 
     if (/^\/?banlist$/i.test(message.content.trim()) || /^!banlist$/i.test(message.content.trim())) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
@@ -301,9 +461,19 @@ client.on('messageCreate', async message => {
         return;
     }
 
+    if (/^\/?admins$/i.test(message.content.trim()) || /^!admins$/i.test(message.content.trim())) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
+            await message.reply(commandAccessDeniedMessage());
+            return;
+        }
+
+        await message.reply(formatBotAdminsList(message.guildId));
+        return;
+    }
+
     const unbanMatch = message.content.trim().match(/^\/?unban\s+<@!?(\d+)>$/i) || message.content.trim().match(/^!unban\s+<@!?(\d+)>$/i);
     if (unbanMatch) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
@@ -312,17 +482,17 @@ client.on('messageCreate', async message => {
         const removed = removeSlotBan(message.guildId, targetUserId);
 
         if (!removed) {
-            await message.reply(`ℹ️ <@${targetUserId}> не был забанен от участия в пике слотов.`);
+            await message.reply(`в„№пёЏ <@${targetUserId}> РЅРµ Р±С‹Р» Р·Р°Р±Р°РЅРµРЅ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.`);
             return;
         }
 
-        await message.reply(`✅ <@${targetUserId}> разбанен и снова может участвовать в пике слотов.`);
+        await message.reply(`вњ… <@${targetUserId}> СЂР°Р·Р±Р°РЅРµРЅ Рё СЃРЅРѕРІР° РјРѕР¶РµС‚ СѓС‡Р°СЃС‚РІРѕРІР°С‚СЊ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.`);
         return;
     }
 
     const banMatch = message.content.trim().match(/^\/?banslot\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i) || message.content.trim().match(/^!banslot\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i);
     if (banMatch) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
@@ -332,12 +502,12 @@ client.on('messageCreate', async message => {
         const reason = banMatch[3].trim();
 
         if (!days || days < 1) {
-            await message.reply('❌ Количество дней должно быть больше 0. Пример: `/banslot @username 7 причина`');
+            await message.reply('вќЊ РљРѕР»РёС‡РµСЃС‚РІРѕ РґРЅРµР№ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ 0. РџСЂРёРјРµСЂ: `/banslot @username 7 РїСЂРёС‡РёРЅР°`');
             return;
         }
 
         if (!reason) {
-            await message.reply('❌ Укажите причину бана. Пример: `/banslot @username 7 причина`');
+            await message.reply('вќЊ РЈРєР°Р¶РёС‚Рµ РїСЂРёС‡РёРЅСѓ Р±Р°РЅР°. РџСЂРёРјРµСЂ: `/banslot @username 7 РїСЂРёС‡РёРЅР°`');
             return;
         }
 
@@ -352,34 +522,34 @@ client.on('messageCreate', async message => {
         };
         saveSlotBans(bans);
 
-        await message.reply(`✅ <@${targetUserId}> забанен от участия в пике слотов на ${days} дн.\nПричина: ${reason}`);
+        await message.reply(`вњ… <@${targetUserId}> Р·Р°Р±Р°РЅРµРЅ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ РЅР° ${days} РґРЅ.\nРџСЂРёС‡РёРЅР°: ${reason}`);
         return;
     }
 
     const matchIncomplete = message.content.trim().match(/^\/?slots\s+(\d+)$/i) || message.content.trim().match(/^!slots\s+(\d+)$/i);
     if (matchIncomplete) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
 
         if (!allowedChannels.includes(message.channelId)) {
-            await message.reply('❌ Эта команда доступна только в канале **пик✦слотов** и **shaxta**!');
+            await message.reply('вќЊ Р­С‚Р° РєРѕРјР°РЅРґР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІ РєР°РЅР°Р»Рµ **РїРёРєвњ¦СЃР»РѕС‚РѕРІ** Рё **shaxta**!');
             return;
         }
-        await message.reply('❌ Укажите на какое мероприятие собираются слоты!\n\n**Примеры:**\n`/slots 5 airdrop`\n`/slots 10 шахта`\n`/slots 3 ебля матери марселика`');
+        await message.reply('вќЊ РЈРєР°Р¶РёС‚Рµ РЅР° РєР°РєРѕРµ РјРµСЂРѕРїСЂРёСЏС‚РёРµ СЃРѕР±РёСЂР°СЋС‚СЃСЏ СЃР»РѕС‚С‹!\n\n**РџСЂРёРјРµСЂС‹:**\n`/slots 5 airdrop`\n`/slots 10 С€Р°С…С‚Р°`\n`/slots 3 РµР±Р»СЏ РјР°С‚РµСЂРё РјР°СЂСЃРµР»РёРєР°`');
         return;
     }
     
     const match = message.content.trim().match(/^\/?slots\s+(\d+)\s+(.+)$/i) || message.content.trim().match(/^!slots\s+(\d+)\s+(.+)$/i);
     if (match) {
-        if (!memberCanBanSlots(message.member, message.guild)) {
+        if (!memberCanUseBotCommands(message.member, message.guild, message.author.id)) {
             await message.reply(commandAccessDeniedMessage());
             return;
         }
 
         if (!allowedChannels.includes(message.channelId)) {
-            await message.reply('❌ Эта команда доступна только в канале **пик✦слотов** и **shaxta**!');
+            await message.reply('вќЊ Р­С‚Р° РєРѕРјР°РЅРґР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІ РєР°РЅР°Р»Рµ **РїРёРєвњ¦СЃР»РѕС‚РѕРІ** Рё **shaxta**!');
             return;
         }
 
@@ -387,42 +557,42 @@ client.on('messageCreate', async message => {
         const target = match[2].trim();
         
         if (!count || count < 1 || count > 20) {
-            await message.reply('❌ Количество слотов должно быть от 1 до 20. Пример: `!slots 10 airdrop`');
+            await message.reply('вќЊ РљРѕР»РёС‡РµСЃС‚РІРѕ СЃР»РѕС‚РѕРІ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 20. РџСЂРёРјРµСЂ: `!slots 10 airdrop`');
             return;
         }
         
         if (!target) {
-            await message.reply('❌ Укажите на что собираются слоты. Пример: `!slots 10 airdrop`');
+            await message.reply('вќЊ РЈРєР°Р¶РёС‚Рµ РЅР° С‡С‚Рѕ СЃРѕР±РёСЂР°СЋС‚СЃСЏ СЃР»РѕС‚С‹. РџСЂРёРјРµСЂ: `!slots 10 airdrop`');
             return;
         }
 
-        await message.channel.send(`@everyone БЫСТРО ПИКАЕМ СЛОТЫ НА ${target.toUpperCase()}`);
+        await message.channel.send(`@everyone Р‘Р«РЎРўР Рћ РџРРљРђР•Рњ РЎР›РћРўР« РќРђ ${target.toUpperCase()}`);
 
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         const customId = `pick_slot_${Date.now()}`;
         const pickButton = new ButtonBuilder()
             .setCustomId(customId)
-            .setLabel('🎰 Пикнуть слот')
+            .setLabel('рџЋ° РџРёРєРЅСѓС‚СЊ СЃР»РѕС‚')
             .setStyle(ButtonStyle.Primary);
 
         const row = new ActionRowBuilder().addComponents(pickButton);
 
         const makeEmbed = (entries) => {
             const embed = new EmbedBuilder()
-                .setTitle(`🎰 Пик слотов на ${target}`)
-                .setDescription(`Слоты собирает: ${message.author.toString()}`)
+                .setTitle(`рџЋ° РџРёРє СЃР»РѕС‚РѕРІ РЅР° ${target}`)
+                .setDescription(`РЎР»РѕС‚С‹ СЃРѕР±РёСЂР°РµС‚: ${message.author.toString()}`)
                 .addFields(
-                    { name: '🎯 На что', value: `**${target}**`, inline: true },
-                    { name: '✨ Участники', value: `**${entries.length}**`, inline: true },
-                    { name: '✨ Победителей', value: `**${count}**`, inline: true }
+                    { name: 'рџЋЇ РќР° С‡С‚Рѕ', value: `**${target}**`, inline: true },
+                    { name: 'вњЁ РЈС‡Р°СЃС‚РЅРёРєРё', value: `**${entries.length}**`, inline: true },
+                    { name: 'вњЁ РџРѕР±РµРґРёС‚РµР»РµР№', value: `**${count}**`, inline: true }
                 )
                 .setTimestamp();
 
             if (entries.length > 0) {
-                embed.addFields({ name: '🎟️ Текущие участники', value: entries.map((u, i) => `${i + 1}. ${u.toString()}`).join('\n') });
+                embed.addFields({ name: 'рџЋџпёЏ РўРµРєСѓС‰РёРµ СѓС‡Р°СЃС‚РЅРёРєРё', value: entries.map((u, i) => `${i + 1}. ${u.toString()}`).join('\n') });
             } else {
-                embed.addFields({ name: '🎟️ Текущие участники', value: '❌ _пока нет участников_' });
+                embed.addFields({ name: 'рџЋџпёЏ РўРµРєСѓС‰РёРµ СѓС‡Р°СЃС‚РЅРёРєРё', value: 'вќЊ _РїРѕРєР° РЅРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ_' });
             }
 
             return embed;
@@ -445,7 +615,7 @@ client.on('messageCreate', async message => {
             }
 
             if (seen.has(i.user.id)) {
-                await i.reply({ content: '❌ Вы уже нажали кнопку и участвуете.', ephemeral: true });
+                await i.reply({ content: 'вќЊ Р’С‹ СѓР¶Рµ РЅР°Р¶Р°Р»Рё РєРЅРѕРїРєСѓ Рё СѓС‡Р°СЃС‚РІСѓРµС‚Рµ.', ephemeral: true });
                 return;
             }
 
@@ -465,16 +635,16 @@ client.on('messageCreate', async message => {
         collector.on('end', async (_, reason) => {
             const disabledButton = new ButtonBuilder()
                 .setCustomId(customId)
-                .setLabel('🎰 Пикнуть слот')
+                .setLabel('рџЋ° РџРёРєРЅСѓС‚СЊ СЃР»РѕС‚')
                 .setStyle(ButtonStyle.Primary)
                 .setDisabled(true);
             const disabledRow = new ActionRowBuilder().addComponents(disabledButton);
 
             const finalEmbed = makeEmbed(entries);
             if (entries.length >= count) {
-                finalEmbed.setFooter({ text: `🏆 Заполнено — ${entries.length}/${count} — победители определены` });
+                finalEmbed.setFooter({ text: `рџЏ† Р—Р°РїРѕР»РЅРµРЅРѕ вЂ” ${entries.length}/${count} вЂ” РїРѕР±РµРґРёС‚РµР»Рё РѕРїСЂРµРґРµР»РµРЅС‹` });
             } else {
-                finalEmbed.setFooter({ text: `⏱️ Таймаут — собрано ${entries.length}/${count}` });
+                finalEmbed.setFooter({ text: `вЏ±пёЏ РўР°Р№РјР°СѓС‚ вЂ” СЃРѕР±СЂР°РЅРѕ ${entries.length}/${count}` });
             }
 
             try {
@@ -492,11 +662,81 @@ client.on('interactionCreate', async interaction => {
 
         const allowedChannels = ['1471133668813832335', '1471670121838809128'];
 
+        if (interaction.commandName === 'setadmin') {
+            if (!interaction.guildId) {
+                await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            let isDiscordAdmin = memberIsDiscordAdmin(interaction.member);
+            if (!isDiscordAdmin) {
+                const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+                isDiscordAdmin = memberIsDiscordAdmin(fetchedMember);
+            }
+
+            if (!isDiscordAdmin) {
+                await interaction.reply({ content: adminAccessDeniedMessage(), flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            const targetUser = interaction.options.getUser('user');
+
+            if (!targetUser) {
+                await interaction.reply({ content: '❌ Не удалось найти пользователя.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            const added = addBotAdmin(interaction.guildId, targetUser.id);
+
+            if (!added) {
+                await interaction.reply({ content: `ℹ️ ${targetUser.toString()} уже имеет доступ к командам бота.`, flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            await interaction.reply({ content: `✅ ${targetUser.toString()} получил доступ к командам бота.`, flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (interaction.commandName === 'unadmin') {
+            if (!interaction.guildId) {
+                await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            let isDiscordAdmin = memberIsDiscordAdmin(interaction.member);
+            if (!isDiscordAdmin) {
+                const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+                isDiscordAdmin = memberIsDiscordAdmin(fetchedMember);
+            }
+
+            if (!isDiscordAdmin) {
+                await interaction.reply({ content: adminAccessDeniedMessage(), flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            const targetUser = interaction.options.getUser('user');
+
+            if (!targetUser) {
+                await interaction.reply({ content: '❌ Не удалось найти пользователя.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            const removed = removeBotAdmin(interaction.guildId, targetUser.id);
+
+            if (!removed) {
+                await interaction.reply({ content: `ℹ️ ${targetUser.toString()} не имел отдельного доступа к командам бота.`, flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            await interaction.reply({ content: `✅ У ${targetUser.toString()} снят доступ к командам бота.`, flags: MessageFlags.Ephemeral });
+            return;
+        }
+
         if (interaction.commandName === 'help') {
-            let canUseBotCommand = memberCanBanSlots(interaction.member, interaction.guild);
+            let canUseBotCommand = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
             if (!canUseBotCommand) {
                 const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-                canUseBotCommand = memberCanBanSlots(fetchedMember, interaction.guild);
+                canUseBotCommand = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
             }
 
             if (!canUseBotCommand) {
@@ -508,16 +748,37 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        if (interaction.commandName === 'banlist') {
+        if (interaction.commandName === 'admins') {
             if (!interaction.guildId) {
                 await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
-            let canBanSlots = memberCanBanSlots(interaction.member, interaction.guild);
+            let canUseBotCommand = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
+            if (!canUseBotCommand) {
+                const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+                canUseBotCommand = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
+            }
+
+            if (!canUseBotCommand) {
+                await interaction.reply({ content: commandAccessDeniedMessage(), flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            await interaction.reply({ content: formatBotAdminsList(interaction.guildId), flags: MessageFlags.Ephemeral });
+            return;
+        }
+
+        if (interaction.commandName === 'banlist') {
+            if (!interaction.guildId) {
+                await interaction.reply({ content: 'вќЊ Р­С‚Сѓ РєРѕРјР°РЅРґСѓ РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ.', flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            let canBanSlots = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
             if (!canBanSlots) {
                 const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-                canBanSlots = memberCanBanSlots(fetchedMember, interaction.guild);
+                canBanSlots = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
             }
 
             if (!canBanSlots) {
@@ -531,14 +792,14 @@ client.on('interactionCreate', async interaction => {
 
         if (interaction.commandName === 'unban') {
             if (!interaction.guildId) {
-                await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ Р­С‚Сѓ РєРѕРјР°РЅРґСѓ РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
-            let canBanSlots = memberCanBanSlots(interaction.member, interaction.guild);
+            let canBanSlots = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
             if (!canBanSlots) {
                 const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-                canBanSlots = memberCanBanSlots(fetchedMember, interaction.guild);
+                canBanSlots = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
             }
 
             if (!canBanSlots) {
@@ -549,31 +810,31 @@ client.on('interactionCreate', async interaction => {
             const targetUser = interaction.options.getUser('user');
 
             if (!targetUser) {
-                await interaction.reply({ content: '❌ Не удалось найти пользователя для разбана.', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°Р№С‚Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ СЂР°Р·Р±Р°РЅР°.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             const removed = removeSlotBan(interaction.guildId, targetUser.id);
 
             if (!removed) {
-                await interaction.reply({ content: `ℹ️ ${targetUser.toString()} не был забанен от участия в пике слотов.`, flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: `в„№пёЏ ${targetUser.toString()} РЅРµ Р±С‹Р» Р·Р°Р±Р°РЅРµРЅ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.`, flags: MessageFlags.Ephemeral });
                 return;
             }
 
-            await interaction.reply({ content: `✅ ${targetUser.toString()} разбанен и снова может участвовать в пике слотов.`, flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: `вњ… ${targetUser.toString()} СЂР°Р·Р±Р°РЅРµРЅ Рё СЃРЅРѕРІР° РјРѕР¶РµС‚ СѓС‡Р°СЃС‚РІРѕРІР°С‚СЊ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ.`, flags: MessageFlags.Ephemeral });
             return;
         }
 
         if (interaction.commandName === 'banslot') {
             if (!interaction.guildId) {
-                await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ Р­С‚Сѓ РєРѕРјР°РЅРґСѓ РјРѕР¶РЅРѕ РёСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РѕР»СЊРєРѕ РЅР° СЃРµСЂРІРµСЂРµ.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
-            let canBanSlots = memberCanBanSlots(interaction.member, interaction.guild);
+            let canBanSlots = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
             if (!canBanSlots) {
                 const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-                canBanSlots = memberCanBanSlots(fetchedMember, interaction.guild);
+                canBanSlots = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
             }
 
             if (!canBanSlots) {
@@ -586,17 +847,17 @@ client.on('interactionCreate', async interaction => {
             const reason = interaction.options.getString('reason')?.trim();
 
             if (!targetUser) {
-                await interaction.reply({ content: '❌ Не удалось найти пользователя для бана.', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°Р№С‚Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РґР»СЏ Р±Р°РЅР°.', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             if (!days || days < 1) {
-                await interaction.reply({ content: '❌ Количество дней должно быть больше 0. Пример: `/banslot @username 7 причина`', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ РљРѕР»РёС‡РµСЃС‚РІРѕ РґРЅРµР№ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ Р±РѕР»СЊС€Рµ 0. РџСЂРёРјРµСЂ: `/banslot @username 7 РїСЂРёС‡РёРЅР°`', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             if (!reason) {
-                await interaction.reply({ content: '❌ Укажите причину бана. Пример: `/banslot @username 7 причина`', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: 'вќЊ РЈРєР°Р¶РёС‚Рµ РїСЂРёС‡РёРЅСѓ Р±Р°РЅР°. РџСЂРёРјРµСЂ: `/banslot @username 7 РїСЂРёС‡РёРЅР°`', flags: MessageFlags.Ephemeral });
                 return;
             }
 
@@ -612,17 +873,17 @@ client.on('interactionCreate', async interaction => {
             saveSlotBans(bans);
 
             await interaction.reply({
-                content: `✅ ${targetUser.toString()} забанен от участия в пике слотов на ${days} дн.\nПричина: ${reason}`,
+                content: `вњ… ${targetUser.toString()} Р·Р°Р±Р°РЅРµРЅ РѕС‚ СѓС‡Р°СЃС‚РёСЏ РІ РїРёРєРµ СЃР»РѕС‚РѕРІ РЅР° ${days} РґРЅ.\nРџСЂРёС‡РёРЅР°: ${reason}`,
                 flags: MessageFlags.Ephemeral
             });
             return;
         }
 
         if (interaction.commandName === 'slots') {
-            let canUseBotCommand = memberCanBanSlots(interaction.member, interaction.guild);
+            let canUseBotCommand = memberCanUseBotCommands(interaction.member, interaction.guild, interaction.user.id);
             if (!canUseBotCommand) {
                 const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
-                canUseBotCommand = memberCanBanSlots(fetchedMember, interaction.guild);
+                canUseBotCommand = memberCanUseBotCommands(fetchedMember, interaction.guild, interaction.user.id);
             }
 
             if (!canUseBotCommand) {
@@ -631,7 +892,7 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (!allowedChannels.includes(interaction.channelId)) {
-                await interaction.reply({ content: '❌ Эта команда доступна только в канале **пик✦слотов** и **shaxta**!', ephemeral: true });
+                await interaction.reply({ content: 'вќЊ Р­С‚Р° РєРѕРјР°РЅРґР° РґРѕСЃС‚СѓРїРЅР° С‚РѕР»СЊРєРѕ РІ РєР°РЅР°Р»Рµ **РїРёРєвњ¦СЃР»РѕС‚РѕРІ** Рё **shaxta**!', ephemeral: true });
                 return;
             }
 
@@ -639,45 +900,45 @@ client.on('interactionCreate', async interaction => {
             const target = interaction.options.getString('target');
             
             if (!count || count < 1 || count > 20) {
-                await interaction.reply({ content: '❌ Количество слотов должно быть от 1 до 20.', ephemeral: true });
+                await interaction.reply({ content: 'вќЊ РљРѕР»РёС‡РµСЃС‚РІРѕ СЃР»РѕС‚РѕРІ РґРѕР»Р¶РЅРѕ Р±С‹С‚СЊ РѕС‚ 1 РґРѕ 20.', ephemeral: true });
                 return;
             }
             
             if (!target || target.trim().length === 0) {
-                await interaction.reply({ content: '❌ Укажите на что собираются слоты (например: airdrop, шахта).', ephemeral: true });
+                await interaction.reply({ content: 'вќЊ РЈРєР°Р¶РёС‚Рµ РЅР° С‡С‚Рѕ СЃРѕР±РёСЂР°СЋС‚СЃСЏ СЃР»РѕС‚С‹ (РЅР°РїСЂРёРјРµСЂ: airdrop, С€Р°С…С‚Р°).', ephemeral: true });
                 return;
             }
 
             await interaction.deferReply();
 
             const channel = await client.channels.fetch(interaction.channelId);
-            await channel.send(`@everyone БЫСТРО ПИКАЕМ СЛОТЫ НА ${target.toUpperCase()}`);
+            await channel.send(`@everyone Р‘Р«РЎРўР Рћ РџРРљРђР•Рњ РЎР›РћРўР« РќРђ ${target.toUpperCase()}`);
 
             await new Promise(resolve => setTimeout(resolve, 5000));
 
             const customId = `pick_slot_${Date.now()}`;
             const pickButton = new ButtonBuilder()
                 .setCustomId(customId)
-                .setLabel('🎰 Пикнуть слот')
+                .setLabel('рџЋ° РџРёРєРЅСѓС‚СЊ СЃР»РѕС‚')
                 .setStyle(ButtonStyle.Primary);
 
             const row = new ActionRowBuilder().addComponents(pickButton);
 
             const makeEmbed = (entries) => {
                 const embed = new EmbedBuilder()
-                    .setTitle(`🎰 Пик слотов на ${target}`)
-                    .setDescription(`Слоты собирает: ${interaction.user.toString()}`)
+                    .setTitle(`рџЋ° РџРёРє СЃР»РѕС‚РѕРІ РЅР° ${target}`)
+                    .setDescription(`РЎР»РѕС‚С‹ СЃРѕР±РёСЂР°РµС‚: ${interaction.user.toString()}`)
                     .addFields(
-                        { name: '🎯 На что', value: `**${target}**`, inline: true },
-                        { name: '✨ Участники', value: `**${entries.length}**`, inline: true },
-                        { name: '✨ Победителей', value: `**${count}**`, inline: true }
+                        { name: 'рџЋЇ РќР° С‡С‚Рѕ', value: `**${target}**`, inline: true },
+                        { name: 'вњЁ РЈС‡Р°СЃС‚РЅРёРєРё', value: `**${entries.length}**`, inline: true },
+                        { name: 'вњЁ РџРѕР±РµРґРёС‚РµР»РµР№', value: `**${count}**`, inline: true }
                     )
                     .setTimestamp();
 
                 if (entries.length > 0) {
-                    embed.addFields({ name: '🎯 Текущие участники', value: entries.map((u, i) => `${i + 1}. ${u.toString()}`).join('\n') });
+                    embed.addFields({ name: 'рџЋЇ РўРµРєСѓС‰РёРµ СѓС‡Р°СЃС‚РЅРёРєРё', value: entries.map((u, i) => `${i + 1}. ${u.toString()}`).join('\n') });
                 } else {
-                    embed.addFields({ name: '🎯 Текущие участники', value: '_пока нет участников_' });
+                    embed.addFields({ name: 'рџЋЇ РўРµРєСѓС‰РёРµ СѓС‡Р°СЃС‚РЅРёРєРё', value: '_РїРѕРєР° РЅРµС‚ СѓС‡Р°СЃС‚РЅРёРєРѕРІ_' });
                 }
 
                 return embed;
@@ -700,7 +961,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (seen.has(i.user.id)) {
-                    await i.reply({ content: '❌ Ты уже пикнул слот!.', flags: MessageFlags.Ephemeral });
+                    await i.reply({ content: 'вќЊ РўС‹ СѓР¶Рµ РїРёРєРЅСѓР» СЃР»РѕС‚!.', flags: MessageFlags.Ephemeral });
                     return;
                 }
 
@@ -718,16 +979,16 @@ client.on('interactionCreate', async interaction => {
             collector.on('end', async (_, reason) => {
                 const disabledButton = new ButtonBuilder()
                     .setCustomId(customId)
-                    .setLabel('🎰 Пикнуть слот')
+                    .setLabel('рџЋ° РџРёРєРЅСѓС‚СЊ СЃР»РѕС‚')
                     .setStyle(ButtonStyle.Primary)
                     .setDisabled(true);
                 const disabledRow = new ActionRowBuilder().addComponents(disabledButton);
 
                 const finalEmbed = makeEmbed(entries);
                 if (entries.length >= count) {
-                    finalEmbed.setFooter({ text: `🏆 Заполнено — ${entries.length}/${count} — Слоты определены` });
+                    finalEmbed.setFooter({ text: `рџЏ† Р—Р°РїРѕР»РЅРµРЅРѕ вЂ” ${entries.length}/${count} вЂ” РЎР»РѕС‚С‹ РѕРїСЂРµРґРµР»РµРЅС‹` });
                 } else {
-                    finalEmbed.setFooter({ text: `⏱️ Таймаут — собрано ${entries.length}/${count}` });
+                    finalEmbed.setFooter({ text: `вЏ±пёЏ РўР°Р№РјР°СѓС‚ вЂ” СЃРѕР±СЂР°РЅРѕ ${entries.length}/${count}` });
                 }
 
                 try {
@@ -743,3 +1004,4 @@ client.on('interactionCreate', async interaction => {
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
+
