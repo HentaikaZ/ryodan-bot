@@ -26,7 +26,11 @@ const loadSlotBans = () => {
 };
 
 const saveSlotBans = (bans) => {
-    fs.writeFileSync(slotBansPath, JSON.stringify(bans, null, 2), 'utf8');
+    try {
+        fs.writeFileSync(slotBansPath, JSON.stringify(bans, null, 2), 'utf8');
+    } catch (err) {
+        console.error('Failed to save slot bans:', err);
+    }
 };
 
 const getActiveSlotBan = (guildId, userId) => {
