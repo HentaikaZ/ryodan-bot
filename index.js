@@ -147,6 +147,25 @@ const commandAccessDeniedMessage = () => {
     return `❌ Команды бота могут использовать только администраторы сервера, пользователи с ролью **${slotBanRoleName}** или ролью выше неё.`;
 };
 
+const helpMessage = () => {
+    return [
+        '**Команды бота:**',
+        '',
+        '`/slots [кол-во] [мпшка]` — открыть пик слотов.',
+        'Пример: `/slots 5 шахта`',
+        '',
+        '`/banslot @username [дни] [причина]` — забанить пользователя от участия в пике слотов.',
+        'Пример: `/banslot @username 7 флуд`',
+        '',
+        '`/unban @username` — разбанить пользователя для участия в пике слотов.',
+        'Пример: `/unban @username`',
+        '',
+        '`/banlist` — показать список пользователей, забаненных от участия в пике слотов.',
+        '',
+        '`/help` — показать это сообщение.'
+    ].join('\n');
+};
+
 const http = require('http');
 const port = process.env.PORT || 3000;
 http.createServer((req, res) => res.end('ok')).listen(port, () => {
@@ -161,7 +180,7 @@ const onReady = async () => {
 
     const slotsCommand = {
         name: 'slots',
-        description: 'Открыть раздачу слотов (первым N — выигрывают)',
+        description: 'Открыть пик слотов',
         options: [
             {
                 name: 'count',
@@ -171,7 +190,7 @@ const onReady = async () => {
             },
             {
                 name: 'target',
-                description: 'На что собираются слоты (airdrop, шахта, и т.д)',
+                description: 'На что собираются слоты',
                 type: 3,
                 required: true
             }
@@ -179,7 +198,7 @@ const onReady = async () => {
     };
 
     const slotBanCommand = {
-        name: 'ban',
+        name: 'banslot',
         description: 'Забанить пользователя от участия в пике слотов',
         options: [
             {
@@ -205,7 +224,7 @@ const onReady = async () => {
 
     const slotBanListCommand = {
         name: 'banlist',
-        description: 'Показать список пользователей, забаненных от участия в пике слотов'
+        description: 'Показать список slot-банов'
     };
 
     const slotUnbanCommand = {
@@ -221,6 +240,11 @@ const onReady = async () => {
         ]
     };
 
+    const helpCommand = {
+        name: 'help',
+        description: 'Показать список команд бота'
+    };
+
     const guildId = process.env.DISCORD_GUILD_ID;
 
     if (!clientId) {
@@ -228,11 +252,11 @@ const onReady = async () => {
     } else {
         try {
             if (guildId) {
-                await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand] });
-                console.log(`Slash commands /slots, /ban, /banlist and /unban registered for guild ${guildId} (appear instantly).`);
+                await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand] });
+                console.log(`Slash commands /slots, /banslot, /banlist, /unban and /help registered for guild ${guildId} (appear instantly).`);
             } else {
-                await rest.put(Routes.applicationCommands(clientId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand] });
-                console.log('Slash commands /slots, /ban, /banlist and /unban registered globally (may take some minutes to appear).');
+                await rest.put(Routes.applicationCommands(clientId), { body: [slotsCommand, slotBanCommand, slotBanListCommand, slotUnbanCommand, helpCommand] });
+                console.log('Slash commands /slots, /banslot, /banlist, /unban and /help registered globally (may take some minutes to appear).');
             }
         } catch (err) {
             console.error('Failed to register slash commands:', err);
@@ -254,6 +278,16 @@ client.on('messageCreate', async message => {
         }
 
         await message.channel.send('Pong!');
+        return;
+    }
+
+    if (/^\/?help$/i.test(message.content.trim()) || /^!help$/i.test(message.content.trim())) {
+        if (!memberCanBanSlots(message.member, message.guild)) {
+            await message.reply(commandAccessDeniedMessage());
+            return;
+        }
+
+        await message.reply(helpMessage());
         return;
     }
 
@@ -286,7 +320,7 @@ client.on('messageCreate', async message => {
         return;
     }
 
-    const banMatch = message.content.trim().match(/^\/?ban\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i) || message.content.trim().match(/^!ban\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i);
+    const banMatch = message.content.trim().match(/^\/?banslot\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i) || message.content.trim().match(/^!banslot\s+<@!?(\d+)>\s+(\d+)\s+(.+)$/i);
     if (banMatch) {
         if (!memberCanBanSlots(message.member, message.guild)) {
             await message.reply(commandAccessDeniedMessage());
@@ -298,12 +332,12 @@ client.on('messageCreate', async message => {
         const reason = banMatch[3].trim();
 
         if (!days || days < 1) {
-            await message.reply('❌ Количество дней должно быть больше 0. Пример: `/ban @username 7 причина`');
+            await message.reply('❌ Количество дней должно быть больше 0. Пример: `/banslot @username 7 причина`');
             return;
         }
 
         if (!reason) {
-            await message.reply('❌ Укажите причину бана. Пример: `/ban @username 7 причина`');
+            await message.reply('❌ Укажите причину бана. Пример: `/banslot @username 7 причина`');
             return;
         }
 
@@ -458,6 +492,22 @@ client.on('interactionCreate', async interaction => {
 
         const allowedChannels = ['1471133668813832335', '1471670121838809128'];
 
+        if (interaction.commandName === 'help') {
+            let canUseBotCommand = memberCanBanSlots(interaction.member, interaction.guild);
+            if (!canUseBotCommand) {
+                const fetchedMember = await interaction.guild?.members.fetch(interaction.user.id).catch(() => null);
+                canUseBotCommand = memberCanBanSlots(fetchedMember, interaction.guild);
+            }
+
+            if (!canUseBotCommand) {
+                await interaction.reply({ content: commandAccessDeniedMessage(), flags: MessageFlags.Ephemeral });
+                return;
+            }
+
+            await interaction.reply({ content: helpMessage(), flags: MessageFlags.Ephemeral });
+            return;
+        }
+
         if (interaction.commandName === 'banlist') {
             if (!interaction.guildId) {
                 await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
@@ -514,7 +564,7 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        if (interaction.commandName === 'ban') {
+        if (interaction.commandName === 'banslot') {
             if (!interaction.guildId) {
                 await interaction.reply({ content: '❌ Эту команду можно использовать только на сервере.', flags: MessageFlags.Ephemeral });
                 return;
@@ -541,12 +591,12 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (!days || days < 1) {
-                await interaction.reply({ content: '❌ Количество дней должно быть больше 0. Пример: `/ban @username 7 причина`', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: '❌ Количество дней должно быть больше 0. Пример: `/banslot @username 7 причина`', flags: MessageFlags.Ephemeral });
                 return;
             }
 
             if (!reason) {
-                await interaction.reply({ content: '❌ Укажите причину бана. Пример: `/ban @username 7 причина`', flags: MessageFlags.Ephemeral });
+                await interaction.reply({ content: '❌ Укажите причину бана. Пример: `/banslot @username 7 причина`', flags: MessageFlags.Ephemeral });
                 return;
             }
 
